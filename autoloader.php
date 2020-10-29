@@ -14,6 +14,15 @@ spl_autoload_register(function ($class) {
         "{$namespace}\\" => [
             __DIR__ . '/src',
         ],
+        "Jaybizzle\\CrawlerDetect\\" => [
+            __DIR__ . '/vendor/jaybizzle/crawler-detect/src',
+        ],
+        "Jenssegers\\Agent\\" => [
+            __DIR__ . '/vendor/jenssegers/agent/src',
+        ],
+        "Detection\\" => [
+            __DIR__ . '/vendor/mobiledetect/mobiledetectlib/namespaced/Detection',
+        ],
     ];
 
     foreach ($prefixes as $prefix => $dirs) {
