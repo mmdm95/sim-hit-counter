@@ -44,17 +44,17 @@ class HitCounter implements IHitCounter
      */
     protected $config_parser;
 
+    /**
+     * @var string
+     */
+    protected $cookie_name = '__DO_NOT_DELETE_this_please_';
+
     /********** table keys **********/
 
     /**
      * @var string
      */
     protected $hits_key = 'hits';
-
-    /**
-     * @var string
-     */
-    protected $unique_hits_key = 'unique_hits';
 
     /**
      * HitCounter constructor.
@@ -179,6 +179,7 @@ class HitCounter implements IHitCounter
         // we don't need crawlers to hit
         if (!$this->isHitAllowed()) return $this;
 
+        // NOTE: Check priority is important
         if (self::TIME_DAILY & $hit_at_times) {
             $this->hitDaily($url);
         }
@@ -199,51 +200,25 @@ class HitCounter implements IHitCounter
      * {@inheritdoc}
      * @throws IDBException
      */
-    public function report(?string $url, int $from_time, int $to_time): array
+    public function report(?string $url, int $from_time, int $to_time, int $hit_with_types = self::TYPE_ALL): array
     {
-        $viewCount = 0;
-        $uniqueViewCount = 0;
-
-        $hitColumns = $this->config_parser->getTablesColumn($this->hits_key);
-
-        $where = "{$this->db->quoteName($hitColumns['from_time'])}>=:from_time " .
-            "AND {$this->db->quoteName($hitColumns['to_time'])}<=:to_time";
-        $bindValues = [
-            'from_time' => $from_time,
-            'to_time' => $to_time,
-        ];
-        if (!empty($url)) {
-            $where .= " AND {$this->db->quoteName($hitColumns['url'])}=:url";
-            $bindValues['url'] = $url;
-        }
-
-        $res = $this->db->getFrom(
-            $this->hits_key,
-            $where,
-            [
-                "COUNT({$hitColumns['view_count']}) AS view_count",
-                "COUNT({$hitColumns['unique_view_count']}) AS unique_view_count",
-            ],
-            $bindValues
-        );
-
-        if (count($res)) {
-            $res = $res[0];
-            $viewCount = $res['view_count'];
-            $uniqueViewCount = $res['unique_view_count'];
-        }
-
-        return [
-            'view_count' => $viewCount,
-            'unique_view_count' => $uniqueViewCount,
-        ];
+        return $this->reportIt($url, $from_time, $to_time, $hit_with_types);
     }
 
     /**
      * {@inheritdoc}
      * @throws IDBException
      */
-    public function saveDailyHits(string $path_to_store, bool $delete_from_database = true): bool
+    public function freeReport(?string $url, string $where, array $bind_values = []): array
+    {
+        return $this->reportIt($url, null, null, null, $where, $bind_values);
+    }
+
+    /**
+     * {@inheritdoc}
+     * @throws IDBException
+     */
+    public function saveDailyHits(string $path_to_store, bool $delete_from_database = false): bool
     {
         return $this->saveIt(
             $path_to_store,
@@ -259,7 +234,7 @@ class HitCounter implements IHitCounter
      * @throws IDBException
      * @throws Exception
      */
-    public function saveWeeklyHits(string $path_to_store, bool $delete_from_database = true): bool
+    public function saveWeeklyHits(string $path_to_store, bool $delete_from_database = false): bool
     {
         return $this->saveIt(
             $path_to_store,
@@ -275,7 +250,7 @@ class HitCounter implements IHitCounter
      * @throws IDBException
      * @throws Exception
      */
-    public function saveMonthlyHits(string $path_to_store, bool $delete_from_database = true): bool
+    public function saveMonthlyHits(string $path_to_store, bool $delete_from_database = false): bool
     {
         return $this->saveIt(
             $path_to_store,
@@ -291,7 +266,7 @@ class HitCounter implements IHitCounter
      * @throws IDBException
      * @throws Exception
      */
-    public function saveYearlyHits(string $path_to_store, bool $delete_from_database = true): bool
+    public function saveYearlyHits(string $path_to_store, bool $delete_from_database = false): bool
     {
         return $this->saveIt(
             $path_to_store,
@@ -306,7 +281,7 @@ class HitCounter implements IHitCounter
      * {@inheritdoc}
      * @throws IDBException
      */
-    public function saveHits(string $path_to_store, int $hit_at_times = self::TIME_ALL, bool $delete_from_database = true): bool
+    public function saveHits(string $path_to_store, int $hit_at_times = self::TIME_ALL, bool $delete_from_database = false): bool
     {
         $status = true;
         $isValidTime = false;
@@ -335,10 +310,10 @@ class HitCounter implements IHitCounter
      * @param string $url
      * @param int $from_time
      * @param int $to_time
-     * @param string $type
+     * @param int $type
      * @throws IDBException
      */
-    protected function hitIt(string $url, int $from_time, int $to_time, string $type)
+    protected function hitIt(string $url, int $from_time, int $to_time, int $type)
     {
         $hitColumns = $this->config_parser->getTablesColumn($this->hits_key);
 
@@ -383,10 +358,113 @@ class HitCounter implements IHitCounter
             $url,
             $from_time,
             $to_time,
+            $type,
             $where,
-            $bindValues,
-            $type
+            $bindValues
         );
+    }
+
+    /**
+     * @param string|null $url
+     * @param int $from_time
+     * @param int $to_time
+     * @param string|null $hit_with_types
+     * @param string|null $extra_where
+     * @param array $extra_bind_values
+     * @return array
+     * @throws IDBException
+     */
+    protected function reportIt(
+        ?string $url = null,
+        ?int $from_time = null,
+        ?int $to_time = null,
+        ?string $hit_with_types = null,
+        ?string $extra_where = null,
+        array $extra_bind_values = []
+    ): array
+    {
+        $hitColumns = $this->config_parser->getTablesColumn($this->hits_key);
+        $viewCount = 0;
+        $uniqueViewCount = 0;
+        $where = '';
+        $bindValues = [];
+
+        if (!empty($url)) {
+            $where .= "{$this->db->quoteName($hitColumns['url'])}=:url";
+            $bindValues['url'] = $url;
+        }
+        if (!empty($from_time)) {
+            if (!empty($where)) {
+                $where .= " AND ";
+            }
+            $where .= "{$this->db->quoteName($hitColumns['from_time'])}>=:from_time";
+            $bindValues['from_time'] = $from_time;
+        }
+        if (!empty($to_time)) {
+            if (!empty($where)) {
+                $where .= " AND ";
+            }
+            $where .= "{$this->db->quoteName($hitColumns['to_time'])}<=:to_time";
+            $bindValues['to_time'] = $to_time;
+        }
+        if (!empty($hit_with_types)) {
+            $times = [];
+            if (self::TYPE_DAILY & $hit_with_types) {
+                $times[] = self::TYPE_DAILY;
+            }
+            if (self::TYPE_WEEKLY & $hit_with_types) {
+                $times[] = self::TYPE_WEEKLY;
+            }
+            if (self::TYPE_MONTHLY & $hit_with_types) {
+                $times[] = self::TYPE_MONTHLY;
+            }
+            if (self::TYPE_YEARLY & $hit_with_types) {
+                $times[] = self::TYPE_YEARLY;
+            }
+
+            if (count($times)) {
+                if (!empty($where)) {
+                    $where .= " AND ";
+                }
+                $where .= "{$this->db->quoteName($hitColumns['type'])} IN (";
+
+                foreach ($times as $key => $t) {
+                    $k = "time_$key";
+                    $where .= ":$k,";
+                    $bindValues[$k] = $t;
+                }
+                $where = rtrim($where, ',');
+                $where .= ")";
+            }
+        }
+        if (!empty($extra_where)) {
+            if (!empty($where)) {
+                $where .= " AND ";
+            }
+            $where .= "({$extra_where})";
+            $bindValues = array_merge($bindValues, $extra_bind_values);
+        }
+
+        $res = $this->db->getFrom(
+            $this->hits_key,
+            $where,
+            [
+                "SUM({$this->db->quoteName($hitColumns['view_count'])}) AS view_count",
+                "SUM({$this->db->quoteName($hitColumns['unique_view_count'])}) AS unique_view_count",
+            ],
+            $bindValues
+        );
+
+        if (count($res)) {
+            $res = $res[0];
+            $viewCount = (int)$res['view_count'];
+            $uniqueViewCount = (int)$res['unique_view_count'];
+        }
+
+        return [
+            'view_count' => $viewCount,
+            'unique_view_count' => $uniqueViewCount,
+        ];
     }
 
     /**
@@ -445,101 +523,182 @@ class HitCounter implements IHitCounter
      * @param int $to_time
      * @param string $where
      * @param array $bind_values
-     * @param string $type
+     * @param int $type
      * @throws IDBException
+     * @throws Exception
      */
     protected function incrementUniqueCount(
         string $url,
         int $from_time,
         int $to_time,
+        int $type,
         string $where,
-        array $bind_values,
-        string $type
+        array $bind_values
     )
     {
         $hitColumns = $this->config_parser->getTablesColumn($this->hits_key);
-        $uniqueHitColumns = $this->config_parser->getTablesColumn($this->unique_hits_key);
+        $hashedName = $this->getHashedName($url);
 
-        if ($this->isUniqueHit($this->getHashedName($url), $from_time, $to_time, $type)) {
-            $device = $this->agent->device();
-            $browser = $this->agent->browser();
-            $platform = $this->agent->platform();
-            $res = $this->db->insert(
-                $this->unique_hits_key,
+        $time = $this->getCookieTime($type);
+        $time = $time > 0 ? time() + $time : $time;
+
+        if ($this->isUniqueHit($hashedName, $type, $from_time, $to_time, $time)) {
+            // get previous cookie array
+            $cookieValue = $this->getCookieArray() ?: [];
+
+            // create new cookie data
+            $newData = $this->prepareCookieValue($hashedName, $type, $cookieValue, [
+                $hashedName => [
+                    $type => [
+                        'created_at' => time(),
+                    ]
+                ]
+            ]);
+
+            setcookie(
+                $this->getCookieName(),
+                $newData,
+                $time,
+                '/',
+                null,
+                null,
+                true
+            );
+            $_COOKIE[$this->getCookieName()] = $newData;
+
+            $this->db->update(
+                $this->hits_key,
+                [],
+                $where,
+                $bind_values,
                 [
-                    $this->db->quoteName($uniqueHitColumns['hashed_name']) => $this->getHashedName($url),
-                    $this->db->quoteName($uniqueHitColumns['type']) => $type,
-                    $this->db->quoteName($uniqueHitColumns['device']) => $device,
-                    $this->db->quoteName($uniqueHitColumns['browser']) => $browser,
-                    $this->db->quoteName($uniqueHitColumns['platform']) => $platform,
-                    $this->db->quoteName($uniqueHitColumns['created_at']) => time(),
+                    $this->db->quoteName($hitColumns['unique_view_count']) => "{$this->db->quoteName($hitColumns['unique_view_count'])}+1",
                 ]
             );
-
-            if ($res) {
-                $this->db->update(
-                    $this->hits_key,
-                    [],
-                    $where,
-                    $bind_values,
-                    [
-                        $this->db->quoteName($hitColumns['unique_view_count']) => "{$this->db->quoteName($hitColumns['unique_view_count'])}+1",
-                    ]
-                );
-            }
         }
     }
 
     /**
      * @param string $hashed_name
+     * @param int $type
      * @param int $from_time
      * @param int $to_time
-     * @param string $type
+     * @param int $cookie_time
      * @return bool
-     * @throws IDBException
      */
-    protected function isUniqueHit(string $hashed_name, int $from_time, int $to_time, string $type): bool
+    protected function isUniqueHit(string $hashed_name, int $type, int $from_time, int $to_time, int $cookie_time): bool
     {
-        $uniqueHitColumns = $this->config_parser->getTablesColumn($this->unique_hits_key);
+        $data = $this->getCookieArray();
 
-        // delete all hashed hits before current time start
-        $this->clearHashedNames($from_time, $type);
+        // if the cookie is set and is OK
+        if (empty($data)) {
+            return true;
+        }
 
-        $count = $this->db->count(
-            $this->unique_hits_key,
-            "{$this->db->quoteName($uniqueHitColumns['hashed_name'])}=:hn " .
-            "AND {$this->db->quoteName($uniqueHitColumns['created_at'])}>=:from_time " .
-            "AND {$this->db->quoteName($uniqueHitColumns['created_at'])}<=:to_time " .
-            "AND {$this->db->quoteName($uniqueHitColumns['type'])}=:type",
-            [
-                'hn' => $hashed_name,
-                'from_time' => $from_time,
-                'to_time' => $to_time,
-                'type' => $type,
-            ]
-        );
+        // if there is no record in cookie array
+        if (!isset($data[$hashed_name][$type])) return true;
 
-        return 0 === $count;
+        // if created time is not set or not between of specific start and end time
+        if (
+            !isset($data[$hashed_name][$type]) ||
+            !isset($data[$hashed_name][$type]['created_at']) ||
+            $data[$hashed_name][$type]['created_at'] < $from_time ||
+            $data[$hashed_name][$type]['created_at'] > $to_time
+        ) {
+            // get prepared data
+            $preparedData = $this->prepareCookieValue($hashed_name, $type, $data);
+
+            setcookie(
+                $this->getCookieName(),
+                $preparedData,
+                $cookie_time,
+                '/',
+                null,
+                null,
+                true
+            );
+            $_COOKIE[$this->getCookieName()] = $preparedData;
+            return true;
+        }
+
+        return false;
     }
 
     /**
-     * @param int $from_time
-     * @param string $type
-     * @throws IDBException
+     * @return array|null
      */
-    protected function clearHashedNames(int $from_time, string $type)
+    protected function getCookieArray(): ?array
     {
-        $uniqueHitColumns = $this->config_parser->getTablesColumn($this->unique_hits_key);
+        $cookie = $_COOKIE[$this->getCookieName()] ?? null;
+        $decodedCookie = base64_decode($cookie);
+        $data = json_decode($decodedCookie, true);
 
-        $this->db->delete(
-            $this->unique_hits_key,
-            "{$this->db->quoteName($uniqueHitColumns['created_at'])}<:created_at " .
-            "AND {$this->db->quoteName($uniqueHitColumns['type'])}=:type",
-            [
-                'created_at' => $from_time,
-                'type' => $type,
-            ]
-        );
+        if (empty($cookie) || false === $decodedCookie || is_null($data) || !is_array($data)) {
+            return null;
+        }
+
+        return $data;
+    }
+
+    /**
+     * @param string $hashed_name
+     * @param int $type
+     * @param array $cookie_value
+     * @param array $new_value
+     * @return string
+     */
+    protected function prepareCookieValue(string $hashed_name, int $type, array $cookie_value, array $new_value = []): string
+    {
+        if (empty($new_value) || !isset($new_value[$hashed_name][$type])) {
+            unset($cookie_value[$hashed_name][$type]);
+        } else {
+            $cookie_value[$hashed_name][$type] = $new_value[$hashed_name][$type] ?? [];
+        }
+        return base64_encode(json_encode($cookie_value));
+    }
+
+    /**
+     * @return string
+     */
+    protected function getCookieName(): string
+    {
+        return md5($this->cookie_name);
+    }
+
+    /**
+     * @param int $type
+     * @return int
+     * @throws Exception
+     */
+    protected function getCookieTime(int $type): int
+    {
+        $cookieTime = -3600;
+
+        switch ($type) {
+            case self::TIME_DAILY:
+                $cookieTime = HitCounterUtil::getTodayEndTime() - time();
+                break;
+            case self::TIME_WEEKLY:
+                $cookieTime = HitCounterUtil::getThisWeekEndTime() - time();
+                break;
+            case self::TIME_MONTHLY:
+                $cookieTime = HitCounterUtil::getThisMonthEndTime() - time();
+                break;
+            case self::TIME_YEARLY:
+                $cookieTime = HitCounterUtil::getThisYearEndTime() - time();
+                break;
+        }
+
+        return $cookieTime;
+    }
+
+    /**
+     * Delete hit cookie :)
+     */
+    protected function deleteHitCookie()
+    {
+        setcookie($this->getCookieName(), "", -3600, '/', null, null, true);
+        unset($_COOKIE[$this->getCookieName()]);
     }
 
     /**

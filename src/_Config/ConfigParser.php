@@ -53,7 +53,7 @@ class ConfigParser
      * @var array
      */
     protected $table_aliases = [
-        'hits', 'unique_hits'
+        'hits'
     ];
 
     /**

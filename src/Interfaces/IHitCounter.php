@@ -5,15 +5,15 @@ namespace Sim\HitCounter\Interfaces;
 interface IHitCounter
 {
     const TIME_DAILY = 1;
-    const TIME_WEEKLY = 2;
-    const TIME_MONTHLY = 3;
-    const TIME_YEARLY = 4;
+    const TIME_WEEKLY = 32;
+    const TIME_MONTHLY = 512;
+    const TIME_YEARLY = 4096;
     const TIME_ALL = self::TIME_DAILY | self::TIME_WEEKLY | self::TIME_MONTHLY | self::TIME_YEARLY;
 
-    const TYPE_DAILY = 'daily';
-    const TYPE_WEEKLY = 'weekly';
-    const TYPE_MONTHLY = 'monthly';
-    const TYPE_YEARLY = 'yearly';
+    const TYPE_DAILY = 1;
+    const TYPE_WEEKLY = 32;
+    const TYPE_MONTHLY = 512;
+    const TYPE_YEARLY = 4096;
     const TYPE_ALL = self::TYPE_DAILY | self::TYPE_WEEKLY | self::TYPE_MONTHLY | self::TYPE_YEARLY;
 
     /**
@@ -63,9 +63,18 @@ interface IHitCounter
      * @param string|null $url
      * @param int $from_time
      * @param int $to_time
+     * @param int $hit_with_types
      * @return array
      */
-    public function report(?string $url, int $from_time, int $to_time): array;
+    public function report(?string $url, int $from_time, int $to_time, int $hit_with_types = self::TYPE_ALL): array;
+
+    /**
+     * @param string|null $url
+     * @param string $where
+     * @param array $bind_values
+     * @return array
+     */
+    public function freeReport(?string $url, string $where, array $bind_values = []): array;
 
     /**
      * Save json file for daily hits
@@ -77,7 +86,7 @@ interface IHitCounter
      * @param bool $delete_from_database
      * @return bool
      */
-    public function saveDailyHits(string $path_to_store, bool $delete_from_database = true): bool;
+    public function saveDailyHits(string $path_to_store, bool $delete_from_database = false): bool;
 
     /**
      * Save json file for weekly hits
@@ -89,7 +98,7 @@ interface IHitCounter
      * @param bool $delete_from_database
      * @return bool
      */
-    public function saveWeeklyHits(string $path_to_store, bool $delete_from_database = true): bool;
+    public function saveWeeklyHits(string $path_to_store, bool $delete_from_database = false): bool;
 
     /**
      * Save json file for monthly hits
@@ -101,7 +110,7 @@ interface IHitCounter
      * @param bool $delete_from_database
      * @return bool
      */
-    public function saveMonthlyHits(string $path_to_store, bool $delete_from_database = true): bool;
+    public function saveMonthlyHits(string $path_to_store, bool $delete_from_database = false): bool;
 
     /**
      * Save json file for yearly hits
@@ -113,7 +122,7 @@ interface IHitCounter
      * @param bool $delete_from_database
      * @return bool
      */
-    public function saveYearlyHits(string $path_to_store, bool $delete_from_database = true): bool;
+    public function saveYearlyHits(string $path_to_store, bool $delete_from_database = false): bool;
 
     /**
      * Save json file for hits
@@ -123,5 +132,5 @@ interface IHitCounter
      * @param bool $delete_from_database
      * @return bool
      */
-    public function saveHits(string $path_to_store, int $hit_at_times = self::TIME_ALL, bool $delete_from_database = true): bool;
+    public function saveHits(string $path_to_store, int $hit_at_times = self::TIME_ALL, bool $delete_from_database = false): bool;
 }

@@ -27,7 +27,12 @@ try {
     // up hit tables
 //    $hitCounter->runConfig();
 
-    $hitCounter->hit('index');
+    // test hit
+//    $hitCounter->hit('index');
+//    $hitCounter->hitDaily('index');
+
+    // test report
+//    var_dump($hitCounter->report('index', HitCounterUtil::getYesterdayStartTime(), HitCounterUtil::getTodayEndTime()));
 } catch (\Sim\HitCounter\Interfaces\IDBException $e) {
     echo $e->getMessage();
 }
